@@ -1,0 +1,15 @@
+[package]
+name = "cargo-ipa"
+description = "Compile Rust projects into .ipa files"
+authors = ["The Loki Authors"]
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cargo = "0.69.1"
+clap = { version = "4.2.1", features = ["derive"] }
+toml = "0.7.3"
+zip = "0.6.4"
+
+[cargo-ipa]
+CFBundleName = "My App"
