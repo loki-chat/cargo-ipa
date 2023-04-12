@@ -2,7 +2,7 @@ use clap::Args;
 use std::{collections::HashMap, fs, process::Command};
 use toml::Value;
 
-use crate::{consts::*, Ctx};
+use crate::{context::*, Ctx};
 
 #[derive(Args)]
 pub struct BuildArgs {
@@ -27,7 +27,7 @@ pub fn build(args: BuildArgs, ctx: &Ctx) {
         name,
     } = args;
 
-    // Get the app name
+    // Get the app name, either from Cargo.toml overrides
     let name = match name {
         Some(name) => name,
         None => match &ctx.cfg {
@@ -51,10 +51,11 @@ pub fn build(args: BuildArgs, ctx: &Ctx) {
 
     println!("Compiling Rust binary...");
     // The arguments to pass to cargo
-    let mut cargo_args = vec!["build", "--target", TARGET];
-    if release {
-        cargo_args.push("--release");
-    }
+    let cargo_args = if release {
+        vec!["build", "--target", TARGET, "--release"]
+    } else {
+        vec!["build", "--target", TARGET]
+    };
     // Compile the project/example
     let build_status = if let Some(ref example_name) = example {
         Command::new("cargo")
@@ -118,22 +119,25 @@ pub fn build(args: BuildArgs, ctx: &Ctx) {
         .expect("Failed to go to build directory");
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    if let Err(e) = Command::new("zip")
+    let zip_cmd = Command::new("zip")
         .arg("-r")
         .arg(name.clone() + ".ipa")
-        .arg("Payload")
-        .status()
-    {
-        panic!("Failed to create IPA file: {e}");
-    }
+        .arg("Payloard")
+        .status();
     #[cfg(target_os = "windows")]
-    if let Err(e) = Command::new("powershell")
+    let zip_cmd = Command::new("powershell")
         .arg("Compress-Archive")
         .arg("Payload")
         .arg(name.clone() + ".ipa")
-        .status()
-    {
-        panic!("Failed to create IPA file: {e}");
+        .status();
+
+    match zip_cmd {
+        Ok(status) => {
+            if !status.success() {
+                panic!("Zip command exited unsuccessfully");
+            }
+        }
+        Err(e) => panic!("Zip command failed to run: {e}"),
     }
 
     println!("Cleaning up...");
