@@ -1,9 +1,5 @@
 use clap::Args;
-use std::{
-    collections::HashMap,
-    fs::{self, FileType},
-    process::Command,
-};
+use std::{collections::HashMap, fs, process::Command};
 use toml::Value;
 
 use crate::{consts::*, Ctx};
@@ -116,14 +112,25 @@ pub fn build(args: BuildArgs, ctx: &Ctx) {
         }
     }
 
-    // Need to go to relative path above Payload - otherwise path is weird in zip file
+    // Need to go to relative path above Payload - otherwise the path is weird in the zip file
+    // (eg /full/path/to/Payload instead of Payload)
     std::env::set_current_dir(ctx.build_dir.parent().unwrap())
         .expect("Failed to go to build directory");
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     if let Err(e) = Command::new("zip")
         .arg("-r")
         .arg(name.clone() + ".ipa")
         .arg("Payload")
+        .status()
+    {
+        panic!("Failed to create IPA file: {e}");
+    }
+    #[cfg(target_os = "windows")]
+    if let Err(e) = Command::new("powershell")
+        .arg("Compress-Archive")
+        .arg("Payload")
+        .arg(name.clone() + ".ipa")
         .status()
     {
         panic!("Failed to create IPA file: {e}");

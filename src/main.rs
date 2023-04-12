@@ -9,10 +9,11 @@ use consts::*;
 // The CLI application
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-struct Cli {
+enum Cli {
     #[command(subcommand)]
-    command: Option<Commands>,
+    Ipa(Commands),
 }
+
 #[derive(Subcommand)]
 enum Commands {
     /// Compile a Rust binary or library example into an IPA.
@@ -121,16 +122,14 @@ impl Ctx {
 }
 
 fn main() {
-    // Run the clap app
-    let cli = Cli::parse();
+    // Run the clap app & get the provided command
+    let Cli::Ipa(cmd) = Cli::parse();
 
     // Make the app context
     let ctx = Ctx::new().unwrap();
 
     // Match the command & run code accordingly
-    if let Some(command) = cli.command {
-        match command {
-            Commands::Build(args) => build::build(args, &ctx),
-        }
+    match cmd {
+        Commands::Build(args) => build::build(args, &ctx),
     }
 }
