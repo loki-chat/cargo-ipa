@@ -13,7 +13,7 @@ Currently, cargo-ipa can only build unsigned IPA files. Hopefully, in the future
 
 ## Building IPAs
 
-For binary projects, just run `cargo ipa build`. For libraries, run `cargo ipa -e <example_name>` (or `--example` instead of `-e`) to compile a library example.
+For binary projects, just run `cargo ipa build`. For library examples, run `cargo ipa -e <example_name>` (or `--example` instead of `-e`).
 
 ## App Name
 
@@ -21,10 +21,10 @@ In the `Info.plist`, Apple requires both an app name (as an ID, eg "my-app"), an
 
 ## Info.plist Overrides
 
-cargo-ipa will load values for your app's `Info.plist` directly from `Cargo.toml`. Just add a `cargo-ipa` section, and declare your values under that. For example, to set the `CFBundleName` (app name) property, you'd add this to your `Cargo.toml`:
+cargo-ipa will load values for your app's `Info.plist` directly from `Cargo.toml`. Just add a `package.metadata.cargo-ipa` section, and declare your values under that. For example, to set the `CFBundleName` (app name) property, you'd add this to your `Cargo.toml`:
 
 ```
-[cargo-ipa]
+[package.metadata.cargo-ipa]
 CFBundleName = "My App"
 ```
 
