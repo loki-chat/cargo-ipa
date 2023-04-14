@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 
 mod build;
 mod context;
+mod sign;
 use context::*;
 
 // The CLI application
@@ -16,6 +17,13 @@ enum Cli {
 enum Commands {
     /// Compile a Rust binary or library example into an IPA.
     Build(build::BuildArgs),
+    /// Sign an IPA
+    Sign,
+}
+
+/// Prints an error, with bold & red text
+fn error(msg: String) {
+    println!("\x1B[1;31m{msg}\x1B[0m");
 }
 
 #[cfg(target_os = "macos")]
@@ -27,7 +35,12 @@ fn main() {
     match cmd {
         Commands::Build(args) => {
             if let Err(e) = build::build(args) {
-                println!("{e}");
+                error(e);
+            }
+        }
+        Commands::Sign => {
+            if let Err(e) = sign::sign() {
+                error(e);
             }
         }
     };
