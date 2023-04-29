@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 mod build;
 mod context;
 use context::*;
+mod swift;
 
 // The CLI application
 #[derive(Parser)]
