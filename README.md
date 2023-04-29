@@ -1,9 +1,16 @@
 # cargo-ipa
 A cargo subcommand for compiling .ipa and .app files, for iOS and macOS (respectively).
 
+cargo-ipa **exclusively** supports macOS, and will only ever support macOS. Because Apple is Apple, you can't compile iOS apps on non-mac systems (doing so requires the iOS SDK, which is closed source and only on macOS).
+
 # Installation
 cargo-ipa isn't in a "finished" state yet, so it's not on crates.io. You can, however, still install from Git:
+
 `cargo install --git https://github.com/loki-chat/cargo-ipa.git`
+
+To install with swift-bridge integration:
+
+`cargo install --git https://github.com/loki-chat/cargo-ipa.git --feature swift-bridge`
 
 # Usage
 Currently, cargo-ipa can only build unsigned IPA and .app files. Hopefully, in the future, it'll support signing and installing IPAs as well.
@@ -45,7 +52,7 @@ CFBundleShortVersionString = 0.1.0
 ```
 
 # Swift-bridge integration
-Since many Apple APIs still rely on Swift code, cargo-ipa can integrate with [swift-bridge](https://github.com/chinedufn/swift-bridge/tree/master) to compile Swift and Rust together. To use it, you need to set the `swift-library` and `swift-bridges` settings.
+Since many Apple APIs still rely on Swift code, cargo-ipa can integrate with [swift-bridge](https://github.com/chinedufn/swift-bridge/tree/master) to compile Swift and Rust together. To use it, you need to install cargo-ipa with the swift-bridge feature, and then configure the `swift-library` and `swift-bridges` settings.
 
 `swift-library` is literally just the folder that has your library in it; for example, if your project has `my-swift-library/Sources/my-swift-library` in it, then set `swift-library = "my-swift-library` in your Cargo.toml.
 
