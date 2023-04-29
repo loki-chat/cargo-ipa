@@ -1,4 +1,4 @@
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
 
 use crate::context::Ctx;
 
@@ -11,15 +11,17 @@ pub fn compile_swift(ctx: &Ctx, release_mode: bool) -> Result<Vec<String>, ()> {
         if let Some(toml::Value::Array(bridges)) = cfg.get("swift-bridges") {
             if let Some(toml::Value::String(swift_library_path)) = cfg.get("swift-library") {
                 // Convert the toml values to their correct Rust types
-                let bridges: Vec<String> = bridges
+                let bridges: Vec<PathBuf> = bridges
                     .iter()
                     .map(|val| {
-                        val.to_string()
-                            .strip_prefix('"')
-                            .unwrap()
-                            .strip_suffix('"')
-                            .unwrap()
-                            .to_string()
+                        ctx.root_dir.join(
+                            val.to_string()
+                                .strip_prefix('"')
+                                .unwrap()
+                                .strip_suffix('"')
+                                .unwrap()
+                                .to_string(),
+                        )
                     })
                     .collect();
                 let swift_library_path = ctx.root_dir.join(swift_library_path);

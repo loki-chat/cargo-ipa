@@ -47,11 +47,6 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
 
     // ========== SETUP ==========
     println!("Setting up...");
-    // let mut cargo_args = vec![
-    //     "rustc".to_string(),
-    //     "--target".to_string(),
-    //     TARGET_TRIPLE.to_string(),
-    // ];
     // These arguments to Cargo will never change, since they don't rely on target triples
     let mut static_cargo_args = Vec::new();
     if args.release {
@@ -69,27 +64,6 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
     } else {
         ctx.project_id.to_string()
     };
-    // let build_status = Command::new("cargo").args(static_cargo_args).status();
-
-    // // Make sure building succeeded
-    // if build_status.is_err() || !build_status.unwrap().success() {
-    //     return Err("Cargo failed to compile the project! Aborting.".into());
-    // }
-
-    // ========== GENERATE IPA ==========
-    // println!("Generating app...");
-    // println!("|- Copying the binary...");
-    // // The binary's name & location will change if we're compiling an example or a binary package
-    // let (bin_dir, binary_name) = if let Some(ref example_name) = args.example {
-    //     (&ctx.examples_dir, example_name.to_owned())
-    // } else {
-    //     (&ctx.build_dir, ctx.project_id.to_owned())
-    // };
-    // let binary = fs::read(bin_dir.join(&binary_name));
-    // // Make sure reading the binary & copying it succeeded
-    // if binary.is_err() || fs::write(ctx.app_dir.join(&binary_name), binary.unwrap()).is_err() {
-    //     return Err("Failed to copy the binary into the app! Aborting.".into());
-    // }
 
     // ========== GENERATE INFO.PLIST ==========
     println!("Generating `Info.plist`...");
@@ -144,10 +118,6 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
 
     // ========== CLEANUP ==========
     println!("Cleaning up...");
-    // TODO: Clean up old build files
-    // if fs::remove_dir_all(&ctx.payload_dir).is_err() {
-    //     return Err(format!("Failed to clean build files. You have an IPA file at {}, but future builds may fail due to conflicting build files.", output_path));
-    // }
 
     println!(
         "Done! Your build files are at `{}`",
@@ -310,11 +280,6 @@ fn gen_app(ctx: &Ctx, target_triple: &str, args: &BuildArgs) -> Result<String, S
     let info_plist_path = ctx.cargo_ipa_dir.join("Info.plist");
 
     println!("   |- Copying Info.plist...");
-    //let binary = fs::read(bin_dir.join(&binary_name));
-    // // Make sure reading the binary & copying it succeeded
-    // if binary.is_err() || fs::write(ctx.app_dir.join(&binary_name), binary.unwrap()).is_err() {
-    //     return Err("Failed to copy the binary into the app! Aborting.".into());
-    // }
     let info_plist = fs::read(info_plist_path);
     if info_plist.is_err() || fs::write(app_path.join("Info.plist"), info_plist.unwrap()).is_err() {
         return Err("Error: Failed to copy Info.plist to the new app".into());
