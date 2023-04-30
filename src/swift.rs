@@ -1,10 +1,14 @@
 use std::{path::PathBuf, process::Command};
 
-use crate::context::Ctx;
+use crate::{
+    build::{Architecture, Platform},
+    context::Ctx,
+};
 
-pub fn compile_swift(ctx: &Ctx, release_mode: bool) -> Result<Vec<String>, ()> {
+/// Generates the static/unchanging arguments for Swift and Cargo (and returns them in that order)
+pub fn static_args(ctx: &Ctx, release_mode: bool) -> Option<(Vec<String>, Vec<String>)> {
     #[cfg(not(feature = "swift-bridge"))]
-    return Err(());
+    return None;
 
     #[cfg(feature = "swift-bridge")]
     if let Some(cfg) = &ctx.cfg {
@@ -19,8 +23,7 @@ pub fn compile_swift(ctx: &Ctx, release_mode: bool) -> Result<Vec<String>, ()> {
                                 .strip_prefix('"')
                                 .unwrap()
                                 .strip_suffix('"')
-                                .unwrap()
-                                .to_string(),
+                                .unwrap(),
                         )
                     })
                     .collect();
@@ -34,76 +37,77 @@ pub fn compile_swift(ctx: &Ctx, release_mode: bool) -> Result<Vec<String>, ()> {
                 });
                 let generated_code_path = swift_source_path.join("generated");
 
-                // We'll add arguments for the Cargo command here, and return it later
-                let mut cargo_args = Vec::new();
-
                 // Arguments for the Swift compiler
                 let bridging_header = swift_source_path.join("bridging-header.h");
                 let mut swift_args = vec![
-                    "build",
-                    "-Xswiftc",
-                    "-static",
-                    "-Xswiftc",
-                    "-import-objc-header",
-                    "-Xswiftc",
-                    bridging_header.to_str().unwrap(),
+                    "--package-path".to_string(),
+                    swift_library_path.to_str().unwrap().to_string(),
+                    "-Xswiftc".to_string(),
+                    "-static".to_string(),
+                    "-Xswiftc".to_string(),
+                    "-import-objc-header".to_string(),
+                    "-Xswiftc".to_string(),
+                    bridging_header.to_str().unwrap().to_string(),
                 ];
                 if release_mode {
-                    swift_args.push("-c");
-                    swift_args.push("release");
+                    swift_args.push("-c".to_string());
+                    swift_args.push("release".to_string());
                 }
+
+                // We'll add arguments for the Cargo command here, and return it later
+                let mut cargo_args = vec![
+                    // Link Rust to the Swift package
+                    "--".to_string(),
+                    "-l".to_string(),
+                    "static=".to_string() + swift_library_name,
+                    // Add search paths for linking to Swift libraries
+                    "-L".to_string(),
+                    swift_build_path.to_str().unwrap().to_string(),
+                ];
+
+                cargo_args.push("-L".to_string());
+                cargo_args.push("/usr/lib/swift".to_string());
 
                 // Let swift_bridge generate FFI for Rust <-> Swift
                 swift_bridge_build::parse_bridges(bridges)
                     .write_all_concatenated(generated_code_path, &ctx.project_id);
 
-                // Attempt to compile the Swift package
-                let build_status = Command::new("swift")
-                    .current_dir(&swift_library_path)
-                    .args(swift_args)
-                    .status();
-                if build_status.is_err() || !build_status.unwrap().success() {
-                    println!("Swift failed to compile the project! Attempting to compile without the Swift library...");
-                    return Err(());
-                }
-
-                // Link Rust to the Swift package
-                cargo_args.push("--".to_string());
-                cargo_args.push("-l".to_string());
-                cargo_args.push("static=".to_string() + swift_library_name);
-                cargo_args.push("-l".to_string());
-                cargo_args.push("static=".to_string() + swift_library_name);
-
-                // Add search paths for linking to Swift libraries
-                cargo_args.push("-L".to_string());
-                cargo_args.push(swift_build_path.to_str().unwrap().to_string());
-                let xcode_path = if let Ok(output) = std::process::Command::new("xcode-select")
-                    .arg("--print-path")
-                    .output()
-                {
-                    String::from_utf8(output.stdout.as_slice().into())
-                        .unwrap()
-                        .trim()
-                        .to_string()
-                } else {
-                    "/Applications/Xcode.app/Contents/Developer".to_string()
-                };
-                cargo_args.push("-L".to_string());
-                cargo_args.push(
-                    xcode_path + "/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx/",
-                );
-                cargo_args.push("-L".to_string());
-                cargo_args.push("/usr/lib/swift".to_string());
-
-                Ok(cargo_args)
+                Some((swift_args, cargo_args))
             } else {
-                println!("Swift bridges were listed, but no Swift package was listed to compile!");
-                Err(())
+                None
             }
         } else {
-            Err(())
+            None
         }
     } else {
-        Err(())
+        None
     }
+}
+
+pub fn get_sdk(platform: Platform) -> String {
+    let sdk = match platform {
+        Platform::macOS => "macosx",
+        Platform::iOS => "iphoneos",
+    };
+    let output = Command::new("xcrun")
+        .arg("--sdk")
+        .arg(sdk)
+        .arg("--show-sdk-path")
+        .output()
+        .unwrap();
+    String::from_utf8(output.stdout.as_slice().into())
+        .unwrap()
+        .trim()
+        .to_string()
+}
+
+pub fn get_target_triple(platform: Platform, architecture: Architecture) -> String {
+    String::from(match architecture {
+        Architecture::x86_64 => "x86_64",
+        Architecture::aarch64 => "arm64",
+    }) + "-apple-"
+        + match platform {
+            Platform::iOS => "ios14",
+            Platform::macOS => "macosx11",
+        }
 }

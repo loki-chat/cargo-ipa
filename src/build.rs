@@ -1,7 +1,7 @@
 use clap::{Args, ValueEnum};
-use std::{collections::HashMap, fs, process::Command};
+use std::{collections::HashMap, fs, path::PathBuf, process::Command};
 
-use crate::{context::*, Ctx};
+use crate::{context::*, swift, Ctx};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 #[allow(non_camel_case_types)]
@@ -11,6 +11,14 @@ pub enum Platform {
     #[value(rename_all = "verbatim")]
     iOS,
 }
+impl ToString for Platform {
+    fn to_string(&self) -> String {
+        match self {
+            Self::iOS => String::from("ios"),
+            Self::macOS => String::from("darwin"),
+        }
+    }
+}
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 #[allow(non_camel_case_types)]
@@ -18,6 +26,14 @@ pub enum Architecture {
     #[value(rename_all = "verbatim")]
     x86_64,
     aarch64,
+}
+impl ToString for Architecture {
+    fn to_string(&self) -> String {
+        match self {
+            Self::x86_64 => String::from("x86_64"),
+            Self::aarch64 => String::from("aarch64"),
+        }
+    }
 }
 
 #[derive(Args)]
@@ -56,14 +72,33 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
         static_cargo_args.push("--example".to_string());
         static_cargo_args.push(example_name.to_string());
     }
-    if let Ok(args) = crate::swift::compile_swift(ctx, args.release) {
-        static_cargo_args.extend(args.into_iter());
-    }
+    let static_swift_args =
+        if let Some((swift_args, cargo_args)) = swift::static_args(ctx, args.release) {
+            static_cargo_args.extend(cargo_args.into_iter());
+            Some(swift_args)
+        } else {
+            None
+        };
     let binary_name = if let Some(ref example_name) = args.example {
         example_name.to_string()
     } else {
         ctx.project_id.to_string()
     };
+    // Find XCode Toolchain
+    let mut xcode_toolchain = PathBuf::from(
+        if let Ok(output) = std::process::Command::new("xcode-select")
+            .arg("--print-path")
+            .output()
+        {
+            String::from_utf8(output.stdout.as_slice().into())
+                .unwrap()
+                .trim()
+                .to_string()
+        } else {
+            "/Applications/Xcode.app/Contents/Developer".to_string()
+        },
+    );
+    xcode_toolchain.push("Toolchains/XcodeDefault.xctoolchain/usr/lib/swift");
 
     // ========== GENERATE INFO.PLIST ==========
     println!("Generating `Info.plist`...");
@@ -80,6 +115,7 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
         "CFBundleShortVersionString".into(),
         ctx.project_version.clone(),
     );
+    map.insert("CFBundlePackageType".to_string(), "APPL".to_string());
     // Check for Info.plist overrides in Cargo.toml
     if let Some(cfg) = &ctx.cfg {
         if let Some(toml::Value::Table(properties)) = cfg.get("properties") {
@@ -96,22 +132,47 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
     }
 
     // ========== COMPILATION ==========
-    for (platform, target_triple) in gen_targets_list(&args) {
+    for (platform, architecture) in gen_targets_list(&args) {
+        let target_triple = architecture.to_string() + "-apple-" + &platform.to_string();
         println!("Compiling for {target_triple}...");
-        // Generate the arguments list for Cargo
+
+        // Compile Swift
+        if let Some(ref static_swift_args) = static_swift_args {
+            let target = swift::get_target_triple(platform, architecture);
+            let sdk = swift::get_sdk(platform);
+            let mut swift_args = vec![
+                "build", "-Xswiftc", "-target", "-Xswiftc", &target, "--sdk", &sdk,
+            ];
+            swift_args.extend(static_swift_args.iter().map(|item| item.as_str()));
+
+            let build_status = Command::new("swift").args(swift_args).status();
+            if build_status.is_err() || !build_status.unwrap().success() {
+                return Err("Swift failed to compile the project! Aborting.".into());
+            }
+        }
+
+        // Compile Rust
         let mut cargo_args = vec!["rustc", "--target", &target_triple, "-q"];
         cargo_args.extend(static_cargo_args.iter().map(|item| item.as_str()));
-
-        let build_status = Command::new("cargo").args(cargo_args).status();
+        if !cargo_args.contains(&"--") {
+            cargo_args.push("--");
+        }
+        cargo_args.push("-L");
+        let platform_toolchain = xcode_toolchain.join(match platform {
+            Platform::macOS => "macosx",
+            Platform::iOS => "iphoneos",
+        });
+        cargo_args.push(platform_toolchain.to_str().unwrap());
 
         // Make sure building succeeded
+        let build_status = Command::new("cargo").args(cargo_args).status();
         if build_status.is_err() || !build_status.unwrap().success() {
             return Err("Cargo failed to compile the project! Aborting.".into());
         }
 
         // Make the .ipa or .app file, as appropriate
         match platform {
-            Platform::macOS => gen_app(ctx, &target_triple, &args)?,
+            Platform::macOS => gen_app(ctx, &target_triple, &args, true)?,
             Platform::iOS => gen_ipa(ctx, &target_triple, &args)?,
         };
     }
@@ -141,25 +202,19 @@ fn gen_info_plist(map: HashMap<String, String>) -> String {
 }
 
 /// Generate a list of targets to compile for
-fn gen_targets_list(args: &BuildArgs) -> Vec<(Platform, String)> {
+fn gen_targets_list(args: &BuildArgs) -> Vec<(Platform, Architecture)> {
     // Cache the architectures being used
     let architectures = if let Some(architecture) = args.architecture {
-        match architecture {
-            Architecture::aarch64 => vec!["aarch64"],
-            Architecture::x86_64 => vec!["x86_64"],
-        }
+        vec![architecture]
     } else {
-        vec!["aarch64", "x86_64"]
+        vec![Architecture::x86_64, Architecture::aarch64]
     };
 
     // Cache the platforms being used
     let platforms = if let Some(platform) = args.platform {
-        match platform {
-            Platform::iOS => vec![(Platform::iOS, "ios")],
-            Platform::macOS => vec![(Platform::macOS, "darwin")],
-        }
+        vec![platform]
     } else {
-        vec![(Platform::iOS, "ios"), (Platform::macOS, "darwin")]
+        vec![Platform::iOS, Platform::macOS]
     };
 
     // Merge the two into result
@@ -167,10 +222,7 @@ fn gen_targets_list(args: &BuildArgs) -> Vec<(Platform, String)> {
     for architecture in architectures {
         for platform in &platforms {
             // Generate the target triple from the architecture and platform
-            result.push((
-                platform.0,
-                architecture.to_string() + "-apple-" + platform.1,
-            ));
+            result.push((*platform, architecture));
         }
     }
 
@@ -207,8 +259,7 @@ fn gen_ipa(ctx: &Ctx, target_triple: &str, args: &BuildArgs) -> Result<String, S
         return Err("Error: Failed to create build directory: ".to_owned() + &e.to_string());
     }
 
-    // TODO: Make a .app folder, and put it inside the Payload directory
-    let app_name = gen_app(ctx, target_triple, args)?;
+    let app_name = gen_app(ctx, target_triple, args, false)?;
     println!("|- Compressing the app into an IPA...");
     println!(
         "Moving {} from {} to {}",
@@ -232,7 +283,7 @@ fn gen_ipa(ctx: &Ctx, target_triple: &str, args: &BuildArgs) -> Result<String, S
     // Zip the Payload folder into our ipa file
     let zip_cmd = Command::new("zip")
         .arg("-r")
-        .arg(ctx.project_name.clone() + ".ipa")
+        .arg(ctx.project_name.clone() + "." + target_triple + ".ipa")
         .arg("Payload")
         .status();
 
@@ -244,7 +295,12 @@ fn gen_ipa(ctx: &Ctx, target_triple: &str, args: &BuildArgs) -> Result<String, S
 }
 
 /// Compress everything into an .app file
-fn gen_app(ctx: &Ctx, target_triple: &str, args: &BuildArgs) -> Result<String, String> {
+fn gen_app(
+    ctx: &Ctx,
+    target_triple: &str,
+    args: &BuildArgs,
+    macos: bool,
+) -> Result<String, String> {
     println!("|- Generating .app file...");
     // Where the .app folder will be placed
     let app_name = ctx.project_name.clone() + "." + target_triple + ".app";
@@ -279,15 +335,47 @@ fn gen_app(ctx: &Ctx, target_triple: &str, args: &BuildArgs) -> Result<String, S
     // Find Info.plist
     let info_plist_path = ctx.cargo_ipa_dir.join("Info.plist");
 
+    // The layout of the .app file changes between iOS and macOS, because Apple is Apple
+    // See: https://developer.apple.com/library/archive/documentation/CoreFoundation/Conceptual/CFBundles/BundleTypes/BundleTypes.html
+    let (new_info_plist_path, new_bin_path) = if macos {
+        // The Contents folder inside the app
+        let contents_path = app_path.join("Contents");
+        if let Err(e) = fs::create_dir(&contents_path) {
+            return Err(
+                "Error: Failed to create Contents directory in the app: ".to_owned()
+                    + &e.to_string(),
+            );
+        }
+
+        // The MacOS folder inside the Contents path
+        let macos_path = contents_path.join("MacOS");
+        if let Err(e) = fs::create_dir(&macos_path) {
+            return Err(
+                "Error: Failed to create MacOS directory in the app: ".to_owned() + &e.to_string(),
+            );
+        }
+
+        (contents_path.join("Info.plist"), macos_path.join(bin_name))
+    } else {
+        (app_path.join("Info.plist"), app_path.join(bin_name))
+    };
+
     println!("   |- Copying Info.plist...");
     let info_plist = fs::read(info_plist_path);
-    if info_plist.is_err() || fs::write(app_path.join("Info.plist"), info_plist.unwrap()).is_err() {
+    if info_plist.is_err() || fs::write(new_info_plist_path, info_plist.unwrap()).is_err() {
         return Err("Error: Failed to copy Info.plist to the new app".into());
     }
     println!("   |- Copying the binary...");
     let binary = fs::read(bin_path);
-    if binary.is_err() || fs::write(app_path.join(bin_name), binary.unwrap()).is_err() {
+    if binary.is_err() || fs::write(&new_bin_path, binary.unwrap()).is_err() {
         return Err("Error: Failed to copy the binary to the new app".into());
+    }
+    let executable_command = Command::new("chmod")
+        .arg("+x")
+        .arg(new_bin_path.to_str().unwrap())
+        .status();
+    if executable_command.is_err() || !executable_command.unwrap().success() {
+        return Err("Error: Failed to make the app's binary executable".to_string());
     }
 
     Ok(app_name)
