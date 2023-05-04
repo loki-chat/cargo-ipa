@@ -6,9 +6,9 @@ use crate::{context::*, swift, Ctx};
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 #[allow(non_camel_case_types)]
 pub enum Platform {
-    #[value(rename_all = "verbatim")]
+    #[value(rename_all = "lower")]
     macOS,
-    #[value(rename_all = "verbatim")]
+    #[value(rename_all = "lower")]
     iOS,
 }
 impl ToString for Platform {
@@ -59,7 +59,7 @@ pub struct BuildArgs {
 }
 
 pub fn build(args: BuildArgs) -> Result<(), String> {
-    let ctx = &Ctx::new(&args.name).unwrap();
+    let ctx = &mut Ctx::new(&args.name).unwrap();
 
     // ========== SETUP ==========
     println!("Setting up...");
@@ -135,6 +135,19 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
     for (platform, architecture) in gen_targets_list(&args) {
         let target_triple = architecture.to_string() + "-apple-" + &platform.to_string();
         println!("Compiling for {target_triple}...");
+
+        if ctx.force_cargo_recompile {
+            let mut cargo_args = vec!["clean", "-p", &ctx.project_id, "--target", &target_triple];
+
+            if args.release {
+                cargo_args.push("-r");
+            }
+
+            let clean_result = Command::new("cargo").args(cargo_args).status();
+            if clean_result.is_err() || !clean_result.unwrap().success() {
+                return Err("Failed to clean old build files.".to_string());
+            }
+        }
 
         // Compile Swift
         if let Some(ref static_swift_args) = static_swift_args {

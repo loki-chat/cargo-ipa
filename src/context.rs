@@ -35,6 +35,8 @@ pub struct Ctx {
     pub root_dir: PathBuf,
     /// Path to target/cargo-ipa
     pub cargo_ipa_dir: PathBuf,
+    /// If we need to force Cargo to recompile the source code
+    pub force_cargo_recompile: bool,
 }
 impl Ctx {
     pub fn new(name_arg: &Option<String>) -> Result<Self, String> {
@@ -145,6 +147,7 @@ impl Ctx {
             target_dir,
             root_dir,
             cargo_ipa_dir,
+            force_cargo_recompile: false,
         })
     }
 }

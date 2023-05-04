@@ -20,9 +20,9 @@ For binary projects, just run `cargo ipa build`. For library examples, run `carg
 
 By default, cargo-ipa will make 4 files: an IPA for x86_64 iOS, an IPA for aarch64 iOS, an app for x86_64 macOS, and an app for aarch64 macOS. You can limit these with the `-p`/`--platform` and `-a`/`--architecture` flags; you can set the platform to just iOS or just macOS, and the architecture to just x86_64 or just aarch64 devices. For example, to compile your cool app for M1 (and later) macs, you could run:
 
-`cargo ipa build --platform macOS --architecture aarch64`
+`cargo ipa build --platform macos --architecture aarch64`
 
-(or, if you're a normal person and find architecture impossible to spell: `cargo ipa build -p macOS -a aarch64`.)
+(or, if you're a normal person and find architecture impossible to spell: `cargo ipa build -p macos -a aarch64`.)
 
 ## App Name
 In the `Info.plist`, Apple requires both an app name (as an ID, eg "my-app"), and a human readable name (eg "My App"). cargo-ipa will set the ID to the package name in `Cargo.toml`, but needs a human readable name. You can either set this via the `name` setting (see [Configuration](#configuration)), or pass the `-n` (or `--name`) argument to `cargo-ipa`.

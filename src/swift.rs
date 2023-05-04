@@ -6,7 +6,7 @@ use crate::{
 };
 
 /// Generates the static/unchanging arguments for Swift and Cargo (and returns them in that order)
-pub fn static_args(ctx: &Ctx, release_mode: bool) -> Option<(Vec<String>, Vec<String>)> {
+pub fn static_args(ctx: &mut Ctx, release_mode: bool) -> Option<(Vec<String>, Vec<String>)> {
     #[cfg(not(feature = "swift-bridge"))]
     return None;
 
@@ -71,6 +71,10 @@ pub fn static_args(ctx: &Ctx, release_mode: bool) -> Option<(Vec<String>, Vec<St
                 // Let swift_bridge generate FFI for Rust <-> Swift
                 swift_bridge_build::parse_bridges(bridges)
                     .write_all_concatenated(generated_code_path, &ctx.project_id);
+
+                // We need to force Cargo to recompile the Rust code, otherwise it won't
+                // link to the updated Swift library
+                ctx.force_cargo_recompile = true;
 
                 Some((swift_args, cargo_args))
             } else {
