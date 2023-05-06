@@ -13,6 +13,8 @@ pub const PLIST_CLOSING: &str = r#"
 </dict>
 </plist>
 "#;
+/// Cargo.toml's name, for finding the project's root directory
+const CARGO_TOML: &str = "Cargo.toml";
 
 /// The app context
 pub struct Ctx {
@@ -42,13 +44,22 @@ impl Ctx {
     pub fn new(name_arg: &Option<String>) -> Result<Self, String> {
         // Get all the project directories
         // Locate Cargo.toml
-        let cargo_toml = match std::env::current_dir() {
-            Ok(path) => match cargo::util::important_paths::find_root_manifest_for_wd(&path) {
-                Ok(cfg_location) => cfg_location,
-                Err(e) => return Err(format!("Failed to locate Cargo.toml: {e}")),
-            },
+        let mut cargo_toml = None;
+        match std::env::current_dir() {
+            Ok(path) => {
+                for dir in path.ancestors() {
+                    let path = dir.join(CARGO_TOML);
+                    if path.exists() {
+                        cargo_toml = Some(path);
+                    }
+                }
+                if cargo_toml.is_none() {
+                    return Err("Failed to locate Cargo.toml".to_string());
+                }
+            }
             Err(e) => return Err(format!("Failed to get current directory: {e}")),
         };
+        let cargo_toml = cargo_toml.unwrap();
 
         // Get the parent directory of Cargo.toml - the project's root directory
         let root_dir = match cargo_toml.parent() {
@@ -150,4 +161,70 @@ impl Ctx {
             force_cargo_recompile: false,
         })
     }
+}
+
+#[cfg(feature = "binary")]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[allow(non_camel_case_types)]
+pub enum Platform {
+    #[value(rename_all = "lower")]
+    macOS,
+    #[value(rename_all = "lower")]
+    iOS,
+}
+#[cfg(not(feature = "binary"))]
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone)]
+pub enum Platform {
+    macOS,
+    iOS,
+}
+impl ToString for Platform {
+    fn to_string(&self) -> String {
+        match self {
+            Self::iOS => String::from("ios"),
+            Self::macOS => String::from("darwin"),
+        }
+    }
+}
+
+#[cfg(feature = "binary")]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[allow(non_camel_case_types)]
+pub enum Architecture {
+    #[value(rename_all = "verbatim")]
+    x86_64,
+    aarch64,
+}
+#[cfg(not(feature = "binary"))]
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone)]
+pub enum Architecture {
+    x86_64,
+    aarch64,
+}
+impl ToString for Architecture {
+    fn to_string(&self) -> String {
+        match self {
+            Self::x86_64 => String::from("x86_64"),
+            Self::aarch64 => String::from("aarch64"),
+        }
+    }
+}
+
+pub fn detect_xcode() -> PathBuf {
+    let xcode_toolchain = PathBuf::from(
+        if let Ok(output) = std::process::Command::new("xcode-select")
+            .arg("--print-path")
+            .output()
+        {
+            String::from_utf8(output.stdout.as_slice().into())
+                .unwrap()
+                .trim()
+                .to_string()
+        } else {
+            "/Applications/Xcode.app/Contents/Developer".to_string()
+        },
+    );
+    xcode_toolchain.join("Toolchains/XcodeDefault.xctoolchain/usr/lib/swift")
 }

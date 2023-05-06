@@ -3,39 +3,6 @@ use std::{collections::HashMap, fs, path::PathBuf, process::Command};
 
 use crate::{context::*, swift, Ctx};
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-#[allow(non_camel_case_types)]
-pub enum Platform {
-    #[value(rename_all = "lower")]
-    macOS,
-    #[value(rename_all = "lower")]
-    iOS,
-}
-impl ToString for Platform {
-    fn to_string(&self) -> String {
-        match self {
-            Self::iOS => String::from("ios"),
-            Self::macOS => String::from("darwin"),
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-#[allow(non_camel_case_types)]
-pub enum Architecture {
-    #[value(rename_all = "verbatim")]
-    x86_64,
-    aarch64,
-}
-impl ToString for Architecture {
-    fn to_string(&self) -> String {
-        match self {
-            Self::x86_64 => String::from("x86_64"),
-            Self::aarch64 => String::from("aarch64"),
-        }
-    }
-}
-
 #[derive(Args)]
 pub struct BuildArgs {
     /// Compile the provided library example into an IPA.
@@ -188,23 +155,6 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
         ctx.cargo_ipa_dir.to_str().unwrap()
     );
     Ok(())
-}
-
-pub fn detect_xcode() -> PathBuf {
-    let xcode_toolchain = PathBuf::from(
-        if let Ok(output) = std::process::Command::new("xcode-select")
-            .arg("--print-path")
-            .output()
-        {
-            String::from_utf8(output.stdout.as_slice().into())
-                .unwrap()
-                .trim()
-                .to_string()
-        } else {
-            "/Applications/Xcode.app/Contents/Developer".to_string()
-        },
-    );
-    xcode_toolchain.join("Toolchains/XcodeDefault.xctoolchain/usr/lib/swift")
 }
 
 /// Generate the Info.plist file

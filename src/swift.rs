@@ -1,11 +1,10 @@
-use std::{path::PathBuf, process::Command};
-
-use crate::{
-    build::{Architecture, Platform},
-    context::Ctx,
+use {
+    crate::context::Ctx,
+    crate::context::{Architecture, Platform},
+    std::path::PathBuf,
+    std::process::Command,
 };
 
-#[cfg(feature = "swift-bridge")]
 pub struct SwiftCtx {
     /// The name of the Swift library to statically compile
     pub library_name: String,
@@ -17,11 +16,13 @@ pub struct SwiftCtx {
     pub build_path: PathBuf,
     /// The path to swift-bridge's `generated` folder
     pub generated_code_path: PathBuf,
+    /// The path to swift-bridge's `bridging-header.h` file
+    pub bridging_header_path: PathBuf,
     /// All of the "bridges" to target with swift-bridge
     pub bridges: Vec<PathBuf>,
 }
 impl SwiftCtx {
-    pub fn new(ctx: &Ctx, release_mode: bool) -> Option<Self> {
+    pub fn new(ctx: &Ctx, release_mode: bool) -> Result<Self, String> {
         if let Some(cfg) = &ctx.cfg {
             if let Some(toml::Value::Array(bridges)) = cfg.get("swift-bridges") {
                 if let Some(toml::Value::String(swift_library_path)) = cfg.get("swift-library") {
@@ -52,23 +53,25 @@ impl SwiftCtx {
                         "debug"
                     });
                     let generated_code_path = source_path.join("generated");
+                    let bridging_header_path = source_path.join("bridging-header.h");
 
-                    Some(Self {
+                    Ok(Self {
                         library_name,
                         library_path,
                         source_path,
                         build_path,
                         generated_code_path,
+                        bridging_header_path,
                         bridges,
                     })
                 } else {
-                    None
+                    Err("No `swift-library` setting set!".to_string())
                 }
             } else {
-                None
+                Err("No `swift-bridges` setting set!".to_string())
             }
         } else {
-            None
+            Err("Failed to get configuration!".to_string())
         }
     }
 }
@@ -76,24 +79,14 @@ impl SwiftCtx {
 /// Generates the static/unchanging arguments for Swift and Cargo (and returns them in that order)
 #[cfg(feature = "swift-bridge")]
 pub fn static_args(ctx: &mut Ctx, release_mode: bool) -> Option<(Vec<String>, Vec<String>)> {
-    let swift_ctx = SwiftCtx::new(ctx, release_mode)?;
+    let swift_ctx = SwiftCtx::new(ctx, release_mode);
+    if swift_ctx.is_err() {
+        return None;
+    }
+    let swift_ctx = swift_ctx.unwrap();
 
     // Arguments for the Swift compiler
-    let bridging_header = swift_ctx.source_path.join("bridging-header.h");
-    let mut swift_args = vec![
-        "--package-path".to_string(),
-        swift_ctx.library_path.to_str().unwrap().to_string(),
-        "-Xswiftc".to_string(),
-        "-static".to_string(),
-        "-Xswiftc".to_string(),
-        "-import-objc-header".to_string(),
-        "-Xswiftc".to_string(),
-        bridging_header.to_str().unwrap().to_string(),
-    ];
-    if release_mode {
-        swift_args.push("-c".to_string());
-        swift_args.push("release".to_string());
-    }
+    let swift_args = static_swiftc_args(&swift_ctx, release_mode);
 
     // We'll add arguments for the Cargo command here, and return it later
     let mut cargo_args = vec![
@@ -120,6 +113,27 @@ pub fn static_args(ctx: &mut Ctx, release_mode: bool) -> Option<(Vec<String>, Ve
     Some((swift_args, cargo_args))
 }
 
+/// Arguments to swiftc that don't depend on the target-triple
+pub fn static_swiftc_args(swift_ctx: &SwiftCtx, release_mode: bool) -> Vec<String> {
+    let mut swift_args = vec![
+        "--package-path".to_string(),
+        swift_ctx.library_path.to_str().unwrap().to_string(),
+        "-Xswiftc".to_string(),
+        "-static".to_string(),
+        "-Xswiftc".to_string(),
+        "-import-objc-header".to_string(),
+        "-Xswiftc".to_string(),
+        swift_ctx.bridging_header_path.to_str().unwrap().to_string(),
+    ];
+    if release_mode {
+        swift_args.push("-c".to_string());
+        swift_args.push("release".to_string());
+    }
+
+    swift_args
+}
+
+/// Find the path to the macOS or iOS SDK
 pub fn get_sdk(platform: Platform) -> String {
     let sdk = match platform {
         Platform::macOS => "macosx",
@@ -137,6 +151,9 @@ pub fn get_sdk(platform: Platform) -> String {
         .to_string()
 }
 
+/// Get Swift's target-triple for a platform & architecture
+///
+/// Swift has different target-triples than Rust does. This function gets Swift's.
 pub fn get_target_triple(platform: Platform, architecture: Architecture) -> String {
     String::from(match architecture {
         Architecture::x86_64 => "x86_64",
