@@ -58,6 +58,8 @@ Since many Apple APIs still rely on Swift code, cargo-ipa can integrate with [sw
 
 `swift-bridges` is a list of Rust files that actually use swift-bridge's FFI (via the `#[swift_bridge::bridge]` macro). These are indexed from the project root (the folder that houses `Cargo.toml`). For example, if you have a file called `swift.rs` that handles FFI, your setting will probably look like this: `swift-bridges = ["src/swift.rs"]`.
 
+Swift-bridge integration is disabled by default because it adds lots of dependencies, which hurts build times.
+
 # Complete list of settings
 - `name`: A string representing the app's name, as it appears in the app list or on the home screen. See [App Name](#app-name).
 - `properties`: A table of keys/values to put in the `Info.plist` file. See [Info.plist Overrides](#infoplist-overrides)
@@ -89,3 +91,49 @@ MinimumOSVersion = "14.0.0"
 # Signing IPAs
 
 Currently, cargo-ipa doesn't support signing the IPA files. It'll just spit out a raw, unsigned IPA file, which you can sign using any existing IPA signer. IPA will hopefully be added in the future.
+
+
+# Build Scripts
+
+If you need to link against a Swift library in `build.rs`, you can add `cargo-ipa` as a build dependency for macOS &/ iOS, then run `cargo_ipa::compile_and_link_swift()` in your `build.rs`. cargo-ipa will read what package to compile from your `Cargo.toml`, just like normal. This does *not* require the `swift-bridge` feature; to cut down compile times, you can generate your bindings beforehand and then use this afterwards to always link with those same bindings.
+
+Example:
+
+```rs
+// In build.rs
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn main() {
+    cargo_ipa::compile_and_link_swift().unwrap();
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+fn main() {}
+```
+
+```toml
+# In Cargo.toml
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.build-dependencies]
+cargo-ipa = { git = "https://github.com/loki-chat/cargo-ipa.git" }
+```
+
+Note that this will only compile and link a Swift package; if you also need to generate FFI bindings, you'll need to run `cargo_ipa::generate_bindings()`, which requires the `swift-bridge` feature. To do that:
+
+```rs
+// In build.rs
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn main() {
+    cargo_ipa::generate_bindings().unwrap();
+    cargo_ipa::compile_and_link_swift().unwrap();
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+fn main() {}
+```
+
+```toml
+# In Cargo.toml
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.build-dependencies]
+cargo-ipa = { git = "https://github.com/loki-chat/cargo-ipa.git", features = ["swift-bridge"] }
+```
+
+This is not recommended, because the dependencies added by swift-bridge will hurt compile times.

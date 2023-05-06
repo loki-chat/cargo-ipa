@@ -7,13 +7,29 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/loki-chat/cargo-ipa"
 
+[lib]
+name = "cargo_ipa"
+path = "src/lib.rs"
+required-features = ["library"]
+
+[[bin]]
+name = "cargo-ipa"
+path = "src/main.rs"
+required-features = ["binary"]
+
 [dependencies]
-cargo = "0.69.1"
-clap = { version = "4.2.1", features = ["derive"] }
 toml = "0.7.3"
+# Only needed for the cargo-ipa CLI
+clap = { version = "4.2.1", features = ["derive"], optional = true }
+# Only needed for swift-bridge integration
 swift-bridge = { version = "0.1", optional = true }
 swift-bridge-build = { version = "0.1", optional = true }
 
 [features]
 default = []
+# Enables integration with swift-bridge
 swift-bridge = ["dep:swift-bridge", "dep:swift-bridge-build"]
+# Dependencies only needed for the cargo_ipa library
+library = []
+# Dependencies only needed for the cargo-ipa CLI
+binary = ["dep:clap"]
