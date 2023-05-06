@@ -47,7 +47,7 @@ pub struct BuildArgs {
     release: bool,
     /// The app's name. If left unprovided, cargo-ipa will search
     /// for it in Cargo.toml. If it can't find it there, it will
-    /// crash.
+    /// error.
     #[arg(short, long)]
     name: Option<String>,
     /// Only compile for 1 platform instead of both
@@ -72,6 +72,7 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
         static_cargo_args.push("--example".to_string());
         static_cargo_args.push(example_name.to_string());
     }
+    #[cfg(feature = "swift-bridge")]
     let static_swift_args =
         if let Some((swift_args, cargo_args)) = swift::static_args(ctx, args.release) {
             static_cargo_args.extend(cargo_args.into_iter());
@@ -85,20 +86,7 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
         ctx.project_id.to_string()
     };
     // Find XCode Toolchain
-    let mut xcode_toolchain = PathBuf::from(
-        if let Ok(output) = std::process::Command::new("xcode-select")
-            .arg("--print-path")
-            .output()
-        {
-            String::from_utf8(output.stdout.as_slice().into())
-                .unwrap()
-                .trim()
-                .to_string()
-        } else {
-            "/Applications/Xcode.app/Contents/Developer".to_string()
-        },
-    );
-    xcode_toolchain.push("Toolchains/XcodeDefault.xctoolchain/usr/lib/swift");
+    let xcode_toolchain = detect_xcode();
 
     // ========== GENERATE INFO.PLIST ==========
     println!("Generating `Info.plist`...");
@@ -150,6 +138,7 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
         }
 
         // Compile Swift
+        #[cfg(feature = "swift-bridge")]
         if let Some(ref static_swift_args) = static_swift_args {
             let target = swift::get_target_triple(platform, architecture);
             let sdk = swift::get_sdk(platform);
@@ -158,6 +147,7 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
             ];
             swift_args.extend(static_swift_args.iter().map(|item| item.as_str()));
 
+            println!("|- Compiling Swift code...");
             let build_status = Command::new("swift").args(swift_args).status();
             if build_status.is_err() || !build_status.unwrap().success() {
                 return Err("Swift failed to compile the project! Aborting.".into());
@@ -198,6 +188,23 @@ pub fn build(args: BuildArgs) -> Result<(), String> {
         ctx.cargo_ipa_dir.to_str().unwrap()
     );
     Ok(())
+}
+
+pub fn detect_xcode() -> PathBuf {
+    let xcode_toolchain = PathBuf::from(
+        if let Ok(output) = std::process::Command::new("xcode-select")
+            .arg("--print-path")
+            .output()
+        {
+            String::from_utf8(output.stdout.as_slice().into())
+                .unwrap()
+                .trim()
+                .to_string()
+        } else {
+            "/Applications/Xcode.app/Contents/Developer".to_string()
+        },
+    );
+    xcode_toolchain.join("Toolchains/XcodeDefault.xctoolchain/usr/lib/swift")
 }
 
 /// Generate the Info.plist file
